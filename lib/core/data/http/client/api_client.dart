@@ -1,36 +1,45 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_clean_architecture/core/data/cache/client/base_cache.dart';
+import 'package:flutter_clean_architecture/core/data/cache/preference/shared_preference_constants.dart';
+import 'package:flutter_clean_architecture/core/data/http/client/api_client_config.dart';
+import 'package:flutter_clean_architecture/core/data/http/client/resource.dart';
+import 'package:flutter_clean_architecture/core/data/http/urls/api_urls.dart';
+import 'package:flutter_clean_architecture/core/domain/error/api_exceptions.dart';
 import 'package:flutter_clean_architecture/features/authentication/domain/model/user_info.dart';
-import 'package:flutter_pretty_dio_logger/flutter_pretty_dio_logger.dart';
 import 'package:logger/logger.dart';
-
+import 'package:pretty_dio_logger/pretty_dio_logger.dart';
+import '../../../../features/authentication/data/model/auth_login_response.dart';
 import '../../../../services/navigation/navigation_service.dart';
-import '../../../domain/error/api_exceptions.dart';
-import '../../cache/client/base_cache.dart';
-import '../../cache/preference/shared_preference_constants.dart';
 import '../../dto/jwt.dart';
-import 'api_client_config.dart';
-import 'resource.dart';
 
-Dio _dio = Dio();
+const bool canShowLog = kDebugMode;
 
-enum _TokenizeRequest {
-  withoutAnyToken,
-  withValidToken,
-  withCurrentToken,
-}
+final _dio = Dio()
+  ..interceptors.add(
+    PrettyDioLogger(
+      requestHeader: true,
+      request: true,
+      requestBody: true,
+      responseBody: true,
+      error: true,
+      enabled: canShowLog,
+    ),
+  );
+
 
 class ApiClient {
   final ApiClientConfig _config;
   final BaseCache _cache;
+  final ApiUrl _url;
 
   JWT? _token;
-  Future? _ongoingRefreshCall;
-  bool isRefresh = false;
   Logger _logger;
 
-  ApiClient(this._config, this._cache, this._logger) {
+  ApiClient(this._config, this._cache, this._logger, this._url) {
     setToken();
   }
 
@@ -45,7 +54,7 @@ class ApiClient {
 
     if (userInfo != null) {
       UserInfo info = UserInfo.fromJsonString(userInfo);
-      _token = JWT(info.accessToken, info.refreshToken ?? "No refresh token");
+      _token = JWT(info.accessToken, info.refreshToken ?? 'No refresh token');
     }
   }
 
@@ -65,46 +74,50 @@ class ApiClient {
     _cache.flushAll().then((value) {
       NavigationService.logoutAndNavigateToLoginScreen();
     });
-    //Dispatcher.fire(LoggedOutEvent());
   }
 
   Future<Resource> get(String uri, {Map<String, dynamic>? queryParams}) async {
-    return _get(uri, false, queryParams);
+    return await _get(uri, false, queryParams);
   }
 
   Future<Resource> authorizedGet(String uri,
       {Map<String, dynamic>? queryParams}) async {
-    return _handleAuthorizationError(() {
+    return await _handleAuthorizationError(() {
       return _get(uri, true, queryParams);
     });
   }
 
   Future<Resource> post(String uri, Map<String, dynamic> data) async {
-    return _post(uri, false, data);
+    return await _post(uri, false, data);
   }
 
   Future<Resource> authorizedPost(String uri, Map<String, dynamic> data,
       {bool? isFormData = false}) async {
-    return _handleAuthorizationError(() {
+    return await _handleAuthorizationError(() {
       return _post(uri, true, data, isFormData: isFormData);
     });
   }
 
-  Future<Resource> authorizedPut(String uri, Map<String, dynamic> data) async {
-    return _handleAuthorizationError(() {
-      return _getDataOrHandleDioError(() async {
-        Options options = await _makeOptions(true);
-        return _dio.put(
-          _makeUrl(uri),
-          data: data,
-          options: options,
-        );
-      });
+  Future<Resource> authorizedPut(String uri, Map<String, dynamic> data,
+      {bool? isFormData = false}) async {
+    bool hasFile = data != null ? _processFiles(data) : false;
+
+    return _getDataOrHandleDioError(() async {
+      Options options = await _makeOptions(true);
+      return await _dio.put(
+        _makeUrl(uri),
+        data: hasFile
+            ? FormData.fromMap(data).clone()
+            : isFormData == true
+            ? FormData.fromMap(data).clone()
+            : data,
+        options: options,
+      );
     });
   }
 
   Future<Resource> delete(String uri) async {
-    return _delete(uri, false);
+    return await _delete(uri, false);
   }
 
   Future<Resource> authorizedDelete(String uri) async {
@@ -113,19 +126,12 @@ class ApiClient {
     });
   }
 
-  Future<Resource> _get(
-      String uri, bool tokenize, Map<String, dynamic>? queryParams) async {
+  Future<Resource> _get(String uri, bool tokenize,
+      Map<String, dynamic>? queryParams) async {
     return _getDataOrHandleDioError(() async {
       Options options = await _makeOptions(tokenize);
-      _dio.interceptors.add(PrettyDioLogger(
-        requestHeader: true,
-        requestBody: true,
-        responseBody: true,
-        responseHeader: false,
-        error: true,
-      ));
       String url = _makeUrl(uri);
-      return _dio.get(
+      return await _dio.get(
         url,
         queryParameters: queryParams,
         options: options,
@@ -137,17 +143,15 @@ class ApiClient {
       {bool? isFormData}) async {
     bool hasFile = data != null ? _processFiles(data) : false;
 
-    logger.d("Data: $data");
-
     return _getDataOrHandleDioError(() async {
       Options options = await _makeOptions(tokenize);
-      return _dio.post(
+      return await _dio.post(
         _makeUrl(uri),
         data: hasFile
-            ? FormData.fromMap(data)
+            ? FormData.fromMap(data).clone()
             : isFormData == true
-                ? FormData.fromMap(data!)
-                : data,
+            ? FormData.fromMap(data!).clone()
+            : data,
         options: options,
       );
     });
@@ -156,7 +160,7 @@ class ApiClient {
   Future<Resource> _delete(String uri, bool tokenize) async {
     return _getDataOrHandleDioError(() async {
       Options options = await _makeOptions(tokenize);
-      return _dio.delete(
+      return await _dio.delete(
         _makeUrl(uri),
         options: options,
       );
@@ -165,61 +169,69 @@ class ApiClient {
 
   bool _processFiles(Map<String, dynamic> data) {
     bool hasFile = false;
-    for (var key in data.keys) {
-      if (data[key] is File) {
-        File file = data[key];
-        data[key] = MultipartFile.fromFileSync(file.path);
+    data.forEach((key, value) {
+      if (value is List<File>) {
+        List<MultipartFile> multipartFiles = [];
+        value.forEach((file) {
+          multipartFiles.add(MultipartFile.fromFileSync(file.path));
+        });
+        data[key] = multipartFiles;
+        hasFile = true;
+      } else if (value is File) {
+        data[key] = MultipartFile.fromFileSync(value.path);
         hasFile = true;
       }
-    }
+    });
     return hasFile;
   }
 
-  Future<Resource> _handleAuthorizationError(Function func,
-      {int retry = 1}) async {
+  Future<Resource> _handleAuthorizationError(Function func) async {
     try {
       return await func();
     } on ApiException catch (e) {
-      debugPrint('=================');
-      if (e.code != 401) rethrow;
-      if (retry <= 0) throw UnauthorizedException(e.message);
-      // await _refreshToken();
-      return _handleAuthorizationError(func, retry: --retry);
+      _logger.e('Authorization Error: ${e.code}, Message: ${e.message}');
+      switch (e.code) {
+        case 401:
+          return await _handleUnauthorized(func);
+        default:
+          rethrow;
+      }
     }
   }
 
-  Future<Resource> _getDataOrHandleDioError(Function func,
-      {int retry = 1}) async {
+
+  Future<Resource> _getDataOrHandleDioError(Function func) async {
     try {
       final Response response = await func();
-      _logIfDebug(response);
       if (response.statusCode! >= 200 && response.statusCode! < 300) {
         return Resource(
             response: response.data, messageCode: response.statusCode);
       } else if (response.statusCode == 401) {
-        throw UnauthorizedException(
-            response.data['message'] ?? "unauthorized exception");
+        throw UnauthorizedException('unauthorized exception');
       } else if (response.statusCode == 403) {
-        throw UnauthorizedException("unauthorized exception");
+        throw ForbiddenException('forbidden exception');
+      } else if (response.statusCode == 417) {
+        throw UserDeactivatedException('UserDeactivatedException');
       } else if (response.statusCode == 500) {
         return Resource(
-            response: response.data ?? {"message": "Internal Server Error"},
+            response: response.data ?? {'message': 'Internal Server Error'},
             message: 'Internal Server Error',
             messageCode: 500);
       } else {
         return Resource(
             status: ResourceStatus.failed,
             messageCode: response.statusCode,
-            message:
-                response.data != null ? response.data['message'] : 'failed');
+            message: response.data != null
+                ? response.data['message']
+                : 'Failed');
       }
     } on DioException catch (error) {
       logger.wtf(error, error.message, StackTrace.current);
       if (error.type == DioExceptionType.sendTimeout) {
-        throw Exception("Connection timeout exception");
+        throw Exception('Connection timeout exception');
       }
       if (error.type == DioExceptionType.connectionError) {
-        throw const SocketException("no internet");
+        throw const SocketException('No internet');
       }
       if (error.response == null) {
         throw RepositoryUnavailableException(error.message);
@@ -233,11 +245,11 @@ class ApiClient {
   }
 
   void _logIfDebug(Response response) {
-    if (_config.isNotDebug) return;
-
-    logger.d(response.realUri.toString());
-    logger.d(response.data);
-    logger.d(response.statusCode.toString());
+    if (kDebugMode) {
+      logger.i(response.realUri.toString());
+      logger.i(response.data);
+      logger.i(response.statusCode.toString());
+    }
   }
 
   String _getErrorMessage(Response response) {
@@ -268,14 +280,13 @@ class ApiClient {
 
   Map<String, dynamic> generateHeader({String? version}) {
     var header = {
-      "Accept": "application/json",
-      "Platform": Platform.isIOS ? "ios" : "android",
-      "Accept-language": Localizations.localeOf(
-                  NavigationService.navigatorKey.currentContext!) ==
-              const Locale('ja')
-          ? "jp"
-          : "en",
-      "Version": version,
+      'Accept': 'application/json',
+      'Platform': Platform.isIOS ? 'ios' : 'android',
+      'Accept-language': Localizations.localeOf(
+          NavigationService.navigatorKey.currentContext!) == const Locale('ja')
+          ? 'ja'
+          : 'en',
+      'Version': version,
     };
     return header;
   }
@@ -283,78 +294,84 @@ class ApiClient {
   Future<Map<String, dynamic>> _addAuthHeader(
       Map<String, dynamic> headers) async {
     JWT? token = await _getToken();
-    headers["authorization"] = "Bearer ${token.getToken()}";
+    headers['authorization'] = 'Bearer ${token.getToken()}';
     return headers;
   }
 
+
   Future<JWT> _getToken() async {
     if (_token == null) throw ArgumentError.notNull("Token");
-    // if (tokenize == _TokenizeRequest.withCurrentToken) return _token!;
-    //if (_token!.isAlive()) return _token!;
+    if (_token!.isAlive()) return _token!;
 
+    await _handleUnauthorized(null);
     return _token!;
+  }
 
-    await _refreshToken();
-    return _token!;
+  bool _isRefreshing = false;
+  List<Function> _refreshListeners = [];
+
+  Future<Resource> _handleUnauthorized(Function? originalRequest) async {
+    if (!_isRefreshing) {
+      _isRefreshing = true;
+      try {
+        await _refreshToken();
+        _isRefreshing = false;
+        _refreshListeners.forEach((listener) => listener());
+        _refreshListeners.clear();
+        debugPrint('Token refreshed');
+
+        if (originalRequest != null) {
+          return await originalRequest();
+        } else {
+          return Resource(messageCode: 200,);
+        }
+      } catch (e) {
+        _isRefreshing = false;
+        _refreshListeners.clear();
+        removeToken();
+        rethrow;
+      }
+    } else {
+      return await _waitForRefresh(originalRequest);
+    }
+  }
+
+  Future<Resource> _waitForRefresh(Function? originalRequest) {
+    Completer<Resource> completer = Completer<Resource>();
+
+    _refreshListeners.add(() async {
+      try {
+        if (originalRequest != null) {
+          final result = await originalRequest();
+          completer.complete(result);
+        } else {
+          completer.complete(Resource(messageCode: 200,));
+        }
+      } catch (e) {
+        completer.completeError(e);
+      }
+    });
+
+    return completer.future;
   }
 
   Future<void> _refreshToken() async {
-    try {
-      await _handleAuthorizationError(() async {
-        _ongoingRefreshCall ??= _post('/refresh_token', false, {});
-        var response = await _ongoingRefreshCall;
-        _ongoingRefreshCall = null;
-        // _token = JWT(response['token']);
-        //Dispatcher.fire(TokenUpdatedEvent(_token!));
-        return response;
-      }, retry: 0);
-    } on UnauthorizedException {
-      removeToken();
-      rethrow;
+    final Map<String, dynamic> data = <String, dynamic>{};
+    final refreshToken = getToken()?.getRefreshToken();
+    data['refresh_token'] = refreshToken;
+    var response = await post(_url.refreshTokenUrl, data);
+    if (response.messageCode == 200) {
+      AuthLoginResponse authResponse = AuthLoginResponse.fromJson(
+          response.response);
+      var userInfo = UserInfo(
+          accessToken: authResponse.accessToken ?? '',
+          refreshToken: authResponse.refreshToken ?? '');
+      await _cache.forever(
+          SharedPreferenceConstant.customerInfo, userInfo.toJsonString());
+      await setToken();
+    } else {
+      throw ApiException(
+          response.messageCode ?? 400, response.message ?? 'Failed to refresh');
     }
   }
 }
-
-//
-// Future<Options> _makeOptions(_TokenizeRequest tokenize) async {
-//   var headers = {
-//     'Accept': ContentType.json.mimeType,
-//     'X-App-Version': (await PackageInfo.fromPlatform()).buildNumber,
-//     'X-App-Platform': Platform.isIOS ? "iOS" : "android"
-//   };
-//
-//   if (tokenize == _TokenizeRequest.withoutAnyToken) return Options(headers: headers);
-//   headers = await _addAuthHeader(headers, tokenize);
-//   return Options(headers: headers);
-// }
-//
-// Future<Map<String, String>> _addAuthHeader(Map<String, String> headers, _TokenizeRequest tokenize) async {
-//   var token = await _getToken(tokenize);
-//   headers["authorization"] = "Bearer ${token.toString()}";
-//   return headers;
-// }
-//
-// Future<JWT> _getToken(_TokenizeRequest tokenize) async {
-//   if (_token == null) throw ArgumentError.notNull("Token");
-//   if (tokenize == _TokenizeRequest.withCurrentToken) return _token!;
-//   if (_token!.isAlive()) return _token!;
-//
-//   await _refreshToken();
-//   return _token!;
-// }
-//
-// Future<void> _refreshToken() async {
-//   try {
-//     await _handleAuthorizationError(() async {
-//       _ongoingRefreshCall ??= _post('/api/customer/refresh?token=true', _TokenizeRequest.withCurrentToken, {});
-//       var response = await _ongoingRefreshCall;
-//       _ongoingRefreshCall = null;
-//       _token = JWT(response['token']);
-//       //Dispatcher.fire(TokenUpdatedEvent(_token!));
-//       return response;
-//     }, retry: 0);
-//   } on UnauthorizedException {
-//     removeToken();
-//     rethrow;
-//   }
-// }

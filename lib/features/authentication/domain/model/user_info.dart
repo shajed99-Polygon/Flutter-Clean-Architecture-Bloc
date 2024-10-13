@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 class UserInfo {
-  final String userName;
-  final String fullName;
+  final String? userName;
+  final String? fullName;
   final String? ogrName;
   final String? role;
   final String accessToken;
@@ -11,10 +11,10 @@ class UserInfo {
   final String? email;
 
   UserInfo({
-    required this.userName,
-    required this.fullName,
+    this.userName,
+    this.fullName,
     this.ogrName,
-    required this.role,
+    this.role,
     required this.accessToken,
     required this.refreshToken,
     this.phone,
