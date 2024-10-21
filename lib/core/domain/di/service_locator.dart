@@ -30,18 +30,16 @@ class ServiceLocator {
   void _baseRegister() {
     registerSingleton<AppConfig>(appConfig);
 
-    registerSingleton<ApiClientConfig>(() => ApiClientConfig(
-          baseUrl: appConfig.apiBaseUrl,
-          isDebug: appConfig.debug,
-          apiVersion: appConfig.apiVersion,
-        ));
+    registerSingleton<ApiClientConfig>(ApiClientConfig(
+      baseUrl: appConfig.apiBaseUrl,
+      isDebug: appConfig.debug,
+      apiVersion: appConfig.apiVersion,
+    ));
 
-    registerSingleton<BaseCache>(() => PreferenceCache());
+    registerSingleton<BaseCache>(PreferenceCache());
+    registerSingleton<ApiUrl>(ApiUrl());
 
-    registerSingleton<ApiUrl>(() => ApiUrl());
-
-    registerSingleton<ApiClient>(
-        () => ApiClient(get<ApiClientConfig>(), get<BaseCache>(), Logger(), get<ApiUrl>()));
+    registerSingleton<ApiClient>(ApiClient(get<ApiClientConfig>(), get<BaseCache>(), Logger(), get<ApiUrl>()));
 
   }
 
