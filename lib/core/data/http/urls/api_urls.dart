@@ -25,4 +25,7 @@ class ApiUrl implements AuthenticationApiUrls, DashboardApiUrls, TradeApiUrls {
 
   @override
   String get getDashboardData => throw UnimplementedError();
+
+  String get refreshTokenUrl => '${baseUrl}auth/refresh-token';
+
 }

@@ -30,30 +30,29 @@ class ServiceLocator {
   void _baseRegister() {
     registerSingleton<AppConfig>(appConfig);
 
-    registerFactory<ApiClientConfig>(() => ApiClientConfig(
-          baseUrl: appConfig.apiBaseUrl,
-          isDebug: appConfig.debug,
-          apiVersion: appConfig.apiVersion,
-        ));
+    registerSingleton<ApiClientConfig>(ApiClientConfig(
+      baseUrl: appConfig.apiBaseUrl,
+      isDebug: appConfig.debug,
+      apiVersion: appConfig.apiVersion,
+    ));
 
-    registerFactory<ApiClient>(
-        () => ApiClient(get<ApiClientConfig>(), get<BaseCache>(), Logger()));
+    registerSingleton<BaseCache>(PreferenceCache());
+    registerSingleton<ApiUrl>(ApiUrl());
 
-    registerFactory<BaseCache>(() => PreferenceCache());
+    registerSingleton<ApiClient>(ApiClient(get<ApiClientConfig>(), get<BaseCache>(), Logger(), get<ApiUrl>()));
+
   }
 
   void _registerRepositories() {
     // Register Repository without cache
-    _registerRepoWithOutCache();
+    _registerRepoWithOutCache(get<ApiClient>());
 
     // Register Repository with cache
     _registerRepoWithCache(get<ApiClient>(), get<BaseCache>());
   }
 
-  void _registerRepoWithOutCache() {
-    registerFactory<ApiUrl>(() => ApiUrl());
-    registerFactory<WelcomeRepository>(
-        () => WelcomeRepositoryImpl(get<ApiClient>()));
+  void _registerRepoWithOutCache(ApiClient client) {
+    registerFactory<WelcomeRepository>(() => WelcomeRepositoryImpl(client));
 
     _registerUseCase();
   }
