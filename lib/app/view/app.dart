@@ -22,7 +22,7 @@ class AppRepositoryProvider extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiRepositoryProvider(
       providers: [
-        RepositoryProvider(create: (context) => serviceLocator<AuthUseCase>()),
+        RepositoryProvider(create: (context) => serviceLocator.get<AuthUseCase>()),
         RepositoryProvider(
             create: (context) => serviceLocator.get<WelcomeUseCase>()),
         RepositoryProvider(
