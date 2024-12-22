@@ -1,52 +1,47 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_clean_architecture/core/core_export.dart';
+import 'package:flutter_clean_architecture/features/welcome/presentation/splash/splash_screen_screen_controller.dart';
 import 'package:flutter_svg/svg.dart';
+import 'package:get/get.dart';
 
-import '../../../../../res/res_export.dart';
-import '../../../../../services/services_export.dart';
-import '../bloc/splash_bloc.dart';
-
-class SplashScreen extends StatelessWidget {
+class SplashScreen extends StatefulWidget {
   const SplashScreen({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context) {
-    context.read<SplashBloc>().add(const SplashNavigate());
+  State<SplashScreen> createState() => _SplashScreenState();
+}
 
-    return BlocConsumer<SplashBloc, SplashState>(
-      listener: (context, state) {
-        if (state is SplashToDashboard) {
-          NavigationService.navigateReplaced(RoutePaths.tradeScreen);
-        } else if (state is SplashToLogin) {
-          NavigationService.navigateReplaced(RoutePaths.loginScreen);
-        }
-      },
-      builder: (context, state) {
-        return Scaffold(
-          body: Stack(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(20),
-                width: double.infinity,
-                height: double.infinity,
-                color: context.resources.color.white,
-                child: SvgPicture.asset(context.resources.drawable.splashImage),
-              ),
-              const Positioned(
-                bottom: 60,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: CircularProgressIndicator(
-                    color: Colors.blue,
-                  ),
-                ),
-              ),
-            ],
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    Get.put(SplashScreenScreenController());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            width: double.infinity,
+            height: double.infinity,
+            color: context.resources.color.white,
+            child: SvgPicture.asset(context.resources.drawable.splashImage),
           ),
-        );
-      },
+          const Positioned(
+            bottom: 60,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: CircularProgressIndicator(
+                color: Colors.blue,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
